@@ -15,6 +15,10 @@ jobs:
     name: Compile and package iOS arm64
     runs-on: xcode-27
     timeout-minutes: 120
+    env:
+      # CMake 4 removed policies below 3.5, but upstream SDL still declares an older policy.
+      # This initializes the cache of each new CMake build tree without modifying upstream.
+      CMAKE_POLICY_VERSION_MINIMUM: '3.5'
     steps:
       - name: Check out exact official v1.5.0 source including submodules
         uses: actions/checkout@v4
