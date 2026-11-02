@@ -2,6 +2,10 @@ name: Build iDared 32bit v1.5.0 (unsigned IPA)
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/build-ipa.yml
 
 permissions:
   contents: read
@@ -31,10 +35,17 @@ jobs:
         run: |
           set -euo pipefail
           cd source
-          test "$(git describe --tags --exact-match)" = "v1.5.0"
+          echo 'Verify pinned v1.5.0 source commit'
+          test "$(git rev-parse HEAD)" = "aeb508b22732fabc845ed12a32360f70536f21ca"
+          echo 'Verify iOS app Xcode project'
           test -f iphone/iDared32bit.xcodeproj/project.pbxproj
-          test -f vendor/SDL/Xcode/SDL/SDL.xcodeproj
+          echo 'Verify SDL Xcode submodule project (Xcode .xcodeproj is a directory)'
+          test -f vendor/SDL/Xcode/SDL/SDL.xcodeproj/project.pbxproj
+          echo 'Verify stb submodule headers'
           test -f vendor/stb/stb_image.h
+          echo 'Verify Rust/Xcode integration project'
+          test -f touchHLE.xcodeproj/project.pbxproj
+          git submodule status
           git rev-parse HEAD
           xcodebuild -version
           rustc --version
