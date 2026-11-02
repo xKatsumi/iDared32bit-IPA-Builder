@@ -1,0 +1,104 @@
+name: Build iDared 32bit v1.5.0 (unsigned IPA)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-ipa:
+    name: Compile and package iOS arm64
+    runs-on: xcode-27
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact official v1.5.0 source including submodules
+        uses: actions/checkout@v4
+        with:
+          repository: iDared32bit-emu/iDared32bit
+          ref: v1.5.0
+          path: source
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install Rust for physical iOS devices
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - name: Check source, tools and dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          test "$(git describe --tags --exact-match)" = "v1.5.0"
+          test -f iphone/iDared32bit.xcodeproj/project.pbxproj
+          test -f vendor/SDL/Xcode/SDL/SDL.xcodeproj
+          test -f vendor/stb/stb_image.h
+          git rev-parse HEAD
+          xcodebuild -version
+          rustc --version
+          cargo --version
+          cmake --version
+          rustup target add aarch64-apple-ios
+
+      - name: Build unsigned iPhone/iPad device app
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project source/iphone/iDared32bit.xcodeproj \
+            -scheme 'iDared 32bit' \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/idared-derived" \
+            -resultBundlePath "$RUNNER_TEMP/idared-build.xcresult" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_ENTITLEMENTS= \
+            CODE_SIGN_IDENTITY= \
+            DEVELOPMENT_TEAM= \
+            build 2>&1 | tee "$RUNNER_TEMP/idared-build.log"
+
+      - name: Verify executable and package IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/idared-derived/Build/Products/Release-iphoneos/iDared 32bit.app"
+          test -d "$APP"
+          test -f "$APP/Info.plist"
+          EXE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")
+          test -n "$EXE"
+          test -f "$APP/$EXE"
+          lipo -verify_arch arm64 "$APP/$EXE"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
+          mkdir -p dist
+          (cd "$RUNNER_TEMP/ipa" && /usr/bin/zip -qry "$GITHUB_WORKSPACE/dist/iDared32bit-v1.5.0-unsigned.ipa" Payload)
+          unzip -tq dist/iDared32bit-v1.5.0-unsigned.ipa
+          test "$(stat -f%z dist/iDared32bit-v1.5.0-unsigned.ipa)" -gt 1000000
+          shasum -a 256 dist/iDared32bit-v1.5.0-unsigned.ipa | tee dist/SHA256SUMS.txt
+
+      - name: Upload IPA and checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: iDared32bit-v1.5.0-unsigned-ipa
+          path: |
+            dist/iDared32bit-v1.5.0-unsigned.ipa
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iDared32bit-build-log
+          path: ${{ runner.temp }}/idared-build.log
+          if-no-files-found: ignore
+          retention-days: 7
